@@ -1,0 +1,769 @@
+             Curso API Node&Mongo con AUTH
+			 
+El repo esta en https://github.com/aprendeweb/school-manager-node-mongo
+
+empezamos creando un proyecto e instalaremos express, mongoose o dotenv entre otros.
+
+Lo primero pondremos el puerto en el .env y crearemos varias carpetas, src,utils,config. en utils vamos a hacerlo escalable y alli exportaremos todas las variables de entorno
+
+                  SETTEANDO DOTENV
+			 
+Podemos requerir una funcion asi: 
+require('dotenv').config();
+
+Tip: podemos usar destructuracion sobre algo que tmb hemos destructurado!:
+
+const { environmentUtils: {validateRequiredEnvs} } = require('./utils')
+
+Explicacion: va a entrar a utils/index.js, alli pedimos a environmentsUtils, pero a traves de este objeto vamos a pedir a validateRequiredEnvs tmb. Fijarse que todo eran objetos!
+
+Creamos las carpetas routes y components dentro de src.Haremos la aplicacion orientada a Roles.
+
+                    RUTAS
+					
+Vamos a tener tres modelos, estudiantes,profesores y cursos.Necesitaremos crear sus endpoints en la API, pero antes vamos a crear los controladores.En los tres archivos de componentes creamos de momento algo asi:
+
+module.exports = {
+    getAll:(req,res)=> {
+        res.send('working');
+    },
+    createOne:(req,res)=> {
+        res.send('working');
+    },
+    updateOne:(req,res)=> {
+        res.send('working');
+    },
+    deleteOne:(req,res)=> {
+        res.send('working');
+    },
+};
+
+Ya podemos empezar a crear los endpoints en los archivos de la carpeta routes(se llamaban igual):
+
+const express = require('express');
+const router = express.Router();
+const {
+    getAll,
+    createOne,
+    updateOne,
+    deleteOne
+} = require('../components/teachers')
+
+
+router.get('/', getAll)
+router.post('/', createOne)
+router.put('/', updateOne)
+router.delete('/', deleteOne)
+
+
+module.exports = router;
+
+Ya tenemos nuestras rutas y componentes creados. Debemos requerirlas desde el server:
+
+const express = require('express');
+const app = new express();
+const { port } = require('./config');
+const courseRoutes = require('./src/routes/courses');
+const studentRoutes = require('./src/routes/students');
+const teacherRoutes = require('./src/routes/teachers');
+
+Ya podemos usarlas!
+
+                      INSOMNIA
+					  
+Vamos a usar Insomnia.Lo descargamos en la version Core y creamos un Workspace(arriba del todo izda)
+Despues creamos tres carpetas un poco mas abajo.
+En cada carpeta creamos requests y las damos nombre :
+1. Get All de tipo Get
+2. Create One de tipo POST y JSON
+3. Update One de tipo Put y JSON tmb
+4. Delete One de tipo Delete
+
+Duplicamos y movemos a las otras dos carpetas
+
+Creamos un SubEnvironment con este objeto:
+
+{
+  "url": "localhost:3000"
+} 
+le damos un color lo seleccionamos y ya podemos hacer peticiones para comprobar.Debemos seleccionar url con cTRL+Space, y no usar 'https://'
+
+       Video 02 Conexion a Atlas-MongoDB
+	   
+No va a ser necesario instalar MongoDB ya que usaremos el de Atlas.Nos registramos y debemos crear un usuario en (DatabaseAcess/Create New User) con privilegios de admin.
+Despues debemos habilitar una IP o todas.
+Vamos a Cluster y creamos uno, si ya lo tenemos damos en Connect y connect your application. Nos dara una uri de conexion,pero debemos sutituir el admin,el password y la dbname.
+
+Lo que vamos a hacer es guardarlo en el .env todo(olvidate de los putos<>)Recordemos que debemos validar si existe esa variable de entorno,etc.
+
+                 Conectar a ATLAS
+				 
+Vamos a crear una carpeta helpers, con dos archivos un index.js y uno para la conexion.
+Vamos a crear una funcion para saber si hay conexiones previas.
+Mongoose usa mongoose.connection.readyState para saber si hay conexiones,es de tipo void asi que hay que retornarlo.Valores posibles
+
+0=disconnected 1 connected 2 connecting 3 disconnecting
+
+const checkConnection = () => {
+    return mongoose.connection.readyState;
+    //0 disconected 1 conected 2 connecting 3 disconnecting
+};
+console.log("Estado de la conexion " + checkConnection());
+
+             Desconectar con CTRL+C
+
+Es muy buena práctica tener una funcion para desconectar de la base de datos.Hay una funcion mongoose.connection.close() que retorna una promesa
+
+const disconnect = async () => {
+    await mongoose.connection.close();
+    return checkConnection();
+}
+
+//Captamos que matamos el proceso con CTRL+C asi
+process.on('SIGINT',  () => {
+   mongoDBHelpers.disconnect()
+      .then((connectionState) => {
+         console.log("Database Disconnected, connectionState: ", connectionState);
+      });
+   console.log("Closing process...");
+   process.exit(0);
+})
+
+          Video 03 Crear Schemas y Modelos
+		  
+Fijate como el campo que va a guardar la referencia a otro documento siempre es un Array.En el atributo ref llevara el nombre del modelo,el type será Schema.Types.ObjectId.
+
+Se recomienda crear una carpeta databases y otra para los models,ademas como hace él,se recomienda exportar todo a un index.js para entrar desde cualquier otro archivo facil.
+
+Empecemos por el Schema y model de los Cursos:
+
+const mongoose = require('mongoose');
+const { Schema } = mongoose;
+
+const schema = new Schema({
+    name: { type: String, required: true },
+    teachers: [{
+        type: Schema.Types.ObjectId,
+        ref: 'teachers',
+    }
+    ]
+
+});
+
+const model = mongoose.model('courses', schema);
+
+module.exports = model; 
+
+Asi con los otros dos y los exportamos tras requerirlos:
+
+const studentsModel = require('./models/students');
+const teachersModel = require('./models/teachers');
+const coursesModel = require('./models/courses');
+
+module.exports = {
+    studentsModel,
+    teachersModel,
+    coursesModel,
+}
+
+Ya podemos pedir este archivo, por destructuring podremos entrar hasta el de arriba...
+
+
+//Esta entrando hasta mongo/index luego obtiene todos los modelos
+const mongo = require('./mongo');
+
+module.exports = { mongo };
+
+            CREANDO LOS ENDPOINTS BIEN
+
+Vamos a añadir un profesor.Recordemos que recibiremos la data de nuestro req.body por Post.Hay dos formas de hacer el POST.La forma uno sería simplemente reasignando las propiedades:
+
+  createOne: async (req, res) => {
+        const { firstName, lastName, age } = req.body;
+       
+        const newTeacher = new teachersModel()
+            newTeacher.firstName = firstName;
+            newTeacher.lastName = lastName;
+            newTeacher.age = age;
+			//lo guarda aqui , asi que ya esta reasignado todo!!
+        await newTeacher.save();
+        
+        res.send('saved');
+    },
+
+IMPORTANTE: los server no saben nada de JSON,son muy tontos, hay que habilitarselo con una middleware:
+
+app.use(express.json());
+
+Como es una API de backend valdrá con eso ¿?
+
+Tip: puedo renombrar una propiedad al usar destructuracion si lo necesito.
+
+  const { firstName:nombre, lastName:apellido, age:edad } = req.body;
+  
+      const newTeacher= new teachersModel({
+            firstName:nombre,
+            lastName:apellido,
+            age:edad,
+        })
+        await newTeacher.save();
+		
+Tip con save() debo instanciar el modelo,es decir, usar new. Se puede usar el metodo create sin instanciarlo. Model.create(...) valdria para el POST tmb
+
+           Video 04 Validacion Joi
+		   
+En este video vamos a validar que estemos recibiendo constantemente el firstName, lastName y age de cada modelo de teacher.Usaremos joi y  sus modulos hpi y boom(es asi ¿?)
+Validemos que no nos mande age: false => para ello debemos instalar con node los siguientes módulos:
+
+npm i @hapi/joi @hapi/boom
+
+Sigamos, vamos a crear dos subcarpetas de src; schemas y middlewares. Dentro de eschemas tendremos esquemas para insertar y actualizar por cada estudiante,profesor y curso.
+
+Un ejemplo básico podria ser asi.Importamos y cremos un Joi.object({}) :
+
+const Joi = require('@hapi/joi');
+
+const schema = Joi.object({
+    firstname: Joi.string().required(),
+    lastName : Joi.string().required(),
+    age: Joi.number().required(),
+    courses : Joi.string(),
+})
+
+module.exports = schema;
+
+Basicamente nos vamos a apoyar en esa constante para crear un object y darle propiedades
+
+Fijate como courses es un array de ids,pero lo pasamos como de tipo string.
+
+Seguimos asi con los otros dos Schemas y ya podremos usarlo en nuestro middleware:
+
+const Boom = require('@hapi/boom');
+
+module.exports = (schema) => {
+    return async (req,res,next) => {
+        
+        await schema.validateAsync(req.body);
+        next();
+        
+        try {
+            
+        } catch (error) {
+            res.send(Boom.badData(error));
+        }
+    }
+}
+
+Vamos a exportar una funcion que recibirá un argumento(debe ser de tipo schema¿?) esa funcion retornra la validacion y continuará, o enviará el error
+
+Debemos aplicar esto en nuestras rutas,asi que vamos a routes/courses e importamos ese objeto con el schema courses(cada uno su respectivo).Y ademas la funcion validadora:
+
+const courseSchema = require('../schemas/courses');
+const validate = require('../middlewares/validateData')
+
+Despues  vamos a usar la validacion en insercciones y actualizaciones solo!:
+
+router.post('/', validate(courseSchema),createOne);
+router.put('/', validate(courseSchema),updateOne);
+
+Hacemos lo mismo para las 3 rutas y validamos que funcione todo con Insomnia. Ojo con la fncion que habia escrito mal!
+
+             Video 05 Operaciones CRUD
+			 
+Vamos a aprender como crear un CRUD con la ayuad de Mongoose.
+Vamos a comenzar con la lectura de datos que es lo mas sencillo.Recuerda que necesitas el objeto Modelo,pues es el que tiene la capacidad de relacionarse con MongoDb y acceder a lo datos.
+
+El Model puede hacer count(), distinct() exists(), ver la API, acuerdate que no solo vale para buscar,tiene mas utilidades.Asi pues requerimos el modelo:
+
+const {mongo:{coursesModel}} = require ...
+
+Tip:Siempre que quieras puedes pasar una funcion callback que reciba lo que has buscado, podrias iterar sobre ellos, etc, lo necesitaras.
+Aunque tmb puedes usar async/await!
+
+// executes, passing results to callback
+MyModel.find({ name: 'john', age: { $gte: 18 }}, function (err, docs) {});
+
+**GET ALL**
+
+Voy a dejar el GetAll asi:
+
+getAll: async (req,res) => {
+        const courses = await coursesModel.find();
+       if(courses.length !== 0){
+           res.json(courses);
+       }else{
+           res.status(204).json("No hay cursos que mostrar!")
+       }
+    },
+	
+tip : instalar nodemon -d y ejecutarlo con nodemon . Sigamos hacia insertar un curso.
+
+**POST INSERT ONE**
+
+Lo primero era crear un nuevo Curso
+//Sabemos que estos dos vienen pues son required OJO!
+const {name, teachers} = req.body;
+const newCourse = new CourseModel({name, teachers
+})
+
+Tip: no se recomienda usar req.body como argumento como hizo Fatz porque luego eso lo ves y no te acuerdas que viene.De esta forma sabes que viene un name y un teachers. 
+
+Es recomendable hacer destructuring(eso si , si no se hace el codigo muy extenso, si si lo hacemos extenso se recomienda req.body)
+Acuerdate que falta guardar ese nuevo modelo!:
+
+    createOne: async (req,res) => {
+        const {name, teachers} = req.body;
+        const newCourse = new coursesModel({
+            name,
+            teachers,
+        });
+        await newCourse.save();
+        res.json(`${name} saved!`);
+    },
+	
+Acuerdate que son Promises todo, veamos como actualizar.
+
+**PUT UPDATE**
+
+Para actualizar necesitamos el _id, vendra en req.params.id o bien podemos hacer destructuring:
+	
+	const { id } = req.params;
+	const { name , teachers} = req.body;
+	const returnValue  = await coursesModel.findByIdAndUpdate(id,{$set:{name,teachers}},{new:true});
+	console.log(returnValue);
+
+	res.send(`${name} updated`);
+	
+**DELETE **
+
+Para borrar simplemente requerimos el id y de nuevo la funcion retornara el doc borrado:
+
+   deleteOne: async (req,res)=> {
+        const { id } = req.params;
+        const removed = await coursesModel.findByIdAndDelete(id);
+
+        res.send(`${removed.name} deleted `);
+    },
+	
+Debemos hacer lo mismo para las otras dos colecciones,enrutar y crear los controladores.
+
+            VIDEO 06 RELACIONES ENTRE COLECCIONES
+		
+Las relaciones se hacen a traves del Schema.Types.ObjectId. Cuando un documento tiene un campo Array de Ids relacionado no debe recibir en el POST ese campo,eso no es responsabilidad de ese update, ese update es solo para el documento.Para insertar y eliminar ids de ese campo de subdocuemntos deberemos crear dos rutas y dos funciones controladoras.Las requests serán de tipo PUT:
+
+router.put('/assignTeacher/:id',assignTeacher);
+router.put('/removeTeacher/:id',removeTeacher);
+
+
+assignTeacher: async (req,res) => {
+	const{ id } = req.params;
+	const { teacher } = req.body;
+
+   const courseUpdated = await coursesModel.findByIdAndUpdate(id,{
+		$push:{teachers:teacher}
+	});
+
+	res.send(`${courseUpdated.name} updated with a teacher`);
+},
+removeTeacher: async (req,res) => {
+	const { id } = req.params;
+	const { teacher } = req.body;
+
+	const courseUpdated = await coursesModel.findByIdAndUpdate(id,{
+		$pull:{teachers:teacher}
+	});
+	res.send(`deleted a teacher for ${courseUpdated.name}`);
+},
+
+Hay que tener en cuenta que recibiremos el Id del documento por el req.parms y el id del subdocumento por el req.body.
+
+                     POPULAR SUBDOCUMENTOS
+			
+Hay un modulo muy usado que es (npm i) mongoose-populate.
+
+Debemos requerir este modulo antes de pasar la instancia del Schema al modelo:
+
+schema.plugin(require('mongoose-autopopulate'));
+
+const model = mongoose.model('courses', schema); <-ANTES
+
+Ya solo hay que pasar la propiedad autopopulate a true en ese Array de Ids:
+
+const schema = new Schema({
+    name: { type: String, required: true },
+    teachers: [{
+        type: Schema.Types.ObjectId,
+        ref: 'teachers',
+        autopopulate:true,
+    }
+ ]
+
+Solo falta hacer lo mismo para students, ya que tiene como subdocumento a courses:
+
+router.put('/assignCourse/:id', assignCourse)
+router.put('/removeCourse/:id', removeCourse)
+
+                VIDEO 07 FAKE DATA Y TIMESTAMPS
+				
+Agregaremos los timestamps para poder ordenar por creaccion o actualizacion, son muy utiles.Simplemente se ponen a true en el constructor Schema:
+
+},{
+    timestamps:true,
+    versionKey:false,
+});
+Ya que estamos quitamos el version Key
+
+Queremos controlar cuando se hace fake data y cuando no.Para ello vamos a usar los argumentos del proceso(process.argv)
+
+Estos argumentos son un array que tendra:
+1-. path al ejecutable de node    process.argv[0]
+2-. path al index que ejecutara node process.argv[1]
+
+Si por ejemplo pasamos node index.js jjajaja veremos que tenemos en la posicion process.argv[2] el string jajaja. aiq ue ya podemos crear una condicional.
+
+Node interpreta 1 o mayor que uno como true y 0 como false(los strings dan true tmb)
+>>node
+>> if(1) console.log("es true")
+>> true
+>> .exit
+
+Asi pues creamos esta logica:
+
+//si hay posicion dos autoejecuta esa funcion
+//if(+process.argv[2]) require('./databases/mongo/fake/index')();
+//podemos hacer con dos trues tmb
++process.argv[2] && require('./databases/mongo/fake')();  
+
+Es decir, si mandamos node index 1 requeriremos este archivo.En este archivo tendremos la data fake:
+
+const faker = require('faker');
+const { studentsModel } = require('../')
+
+module.exports = async () => {
+    for (let i = 0; i < 5; i++) {
+        const newStudent = new studentsModel({
+            firstName: faker.name.firstName(),
+            lastName: faker.name.lastName(),
+            age: faker.random.number(50),
+        });
+        console.log(newStudent);
+        await newStudent.save();
+    }
+};
+
+Esta es una forma controlada de crear data fake. Tip: ver la API para la conversion de campos.
+
+           VIDEO 08 CONSULTAS SIMPLES
+		   
+Aprenderemos las condiciones de búsqueda básicas, ordenamiento de datos, conteo, limitar registros, saltar registros, entre otros.Se recomienda usar la documentacion para terminar de mejorar
+
+            CONTAR LOS DOCUMENTOS   
+			
+Para contar tenemos el método count() que nos dvolverá la cuenta de la query:
+
+count: async (req, res) => {
+        const total = await studentsModel.find().count()
+        res.json({ total })
+    },
+
+       OPERADOR DE IGUALDAD $eq(equals)	$ne(not equals)
+	   
+Podemos filtrar nuestra busqueda por cualquier igualdad(nombre="paco", edad=20, etc:
+
+ getByfirstName: async (req, res) => {
+        const { firstName } = req.query;
+        const studentsFound = await studentsModel.find({
+            firstName: { $eq: firstName },
+        })
+        res.json(studentsFound)
+    },
+	
+Tip: fijarse que podemos pasar parametros por la URL de dos formas, despues de la barra o como argumento.Si lo usamos como argumento debemos usar req.query() y no agregar la /:
+
+router.get('/getByfirstName', getByfirstName)
+
+En la URL deberemos usar ?justo detras de la ruta y propiedad=value.ejemplo:
+
+{{ url }}/students/getByfirstName?firstName=Kadin
+
+Se recomienda poner el nombre de la funcion controladora igual que la ruta.
+
+         OPERADORES COMPARACION Y LIMIT()
+		 
+Podemos limitar la salida de registros con limit(number) y podemos usar operadores de comparacion para,por ejemplo, filtrar por edades comparandolas con $gte,$gt,$lte,$lt , $eq,$ne etc		 
+
+getStudentsAgeGreaterThan: async (req, res) => {
+        const { age } = req.query;
+        const studentsFound = await studentsModel.find({
+            age: { $gte: age }
+        }).limit(3);
+        res.json(studentsFound)
+    },
+	
+	ORDENAR POR CAMPOS Y SALTAR REGISTROS
+	
+Podemos saltar los primeros n registros usando el método skip(n), tmb podemos ordenar por campos usando el metodo sort({field:1} donde field sera el campo por el que ordenar.
+Un uno será en ascendente(de menor a mayor) un 0 sera en descendente.Se le pueden concatenar campos¿?
+
+    orderByAge : async (req, res) => {
+        const studentsFound = await studentsModel.find({
+        }).sort({age:1}).skip(1)
+        res.json(studentsFound)
+    }	
+	
+         	OPERADOR $exists
+			
+Podemos filtrar si existe un campo en concreto:
+
+    exists : async (req, res) => {
+        const studentsExists = await studentsModel.find({
+            createdAt:{$exists:true}
+        }).sort({age:-1}).skip(3);
+        res.json(studentsExists)
+    }
+
+			Video 09 CONSULTAS COMPLEJAS	
+			
+Aprenderemos las condiciones de búsqueda complejas, donde debemos gestionar el populate y filtros dentro del populate, es decir debemos unir colecciones y hacer filtros dentro de la union.			
+Para esto vamos a crear algunos endpoints, para , por ejemplo, traernos algunos estudiantes que pertenezcan a l curso de Arte  o los cursos donde el profesor sea Marta.
+
+Creemos el endpoint getStudentsByCourse.
+Tip : si no se va arecibir un parámetro no es necesario tener /api/ por ejemplo(el segundo / sobra)
+
+En la URL buscaremos asi, con courseName.IMPORTANTE: este nombre puede ser cualquiera,es una variable identificativa nada mas.
+
+students/getStudentsByCourse?courseName=historia
+
+Esto que puede parecer que podriamos acceder desde StudentModel no es asi, aunque veamos esto:
+[
+  {
+    "courses": [
+      {
+        "teachers": [],
+        "_id": "5fac4ffdf82d2e3f4062cf03",
+        "name": "historia",
+        "createdAt": "2020-11-11T20:56:29.810Z",
+        "updatedAt": "2020-11-11T20:56:29.810Z"
+      }
+    ],
+    "_id": "5fa6bd3173061331ac9502c9",
+    "firstName": "Nikita",
+    "lastName": "Ratke",
+    "age": 12,
+    "createdAt": "2020-11-07T15:28:49.376Z",
+    "updatedAt": "2020-11-11T21:08:34.017Z"
+  }
+]
+
+Esto es consecuencia del autopopulate, importante, oscar! en base de datos lo unico que está es el ID en ese array de cursos.Asi que lo desactivamos.
+Tip: el autopopulate cuando se van a realizar consultas sin filtros es perfecto, cuando se necesitan usar filtros se recomienda desactivarlo
+
+El metodo populate recibe la propiedad path que hace referencia al nombre del campo array de ObjectIds (courses en nuestro caso).
+Tip: en cuanto pasemos ese path ya estremos dentro del Schema de cursos, ganando scope sobre sus propiedades,metodos,...
+
+Tip: cuando quiero que termine la funcion debo mandar un return.ejemplo:
+
+{
+            if(error) {console.log(error)
+              //return// res.send(error.message)
+SI NO PONGO EL RETURN VA A SEGUIR EJECUTANDO CODIGO.EL RETURN ES NECESARIO AHÍ.
+
+ const {courseName} = req.query;
+        
+await studentsModel.find({courses:{$not:{$size:0}}}).populate({path:'courses',match:{name:courseName}}).exec((error,students)=> {
+	if(error) {console.log(error)
+	   return res.send(error.message)
+	}
+	const studentsByCourse = students.filter(
+		student => student.courses.length > 0
+	)
+	res.json(studentsByCourse);
+});       			  
+	}
+Normalmente en empresas se hace el populate asi, y despues con un pequeño scrit se filtra aun mas si es necesario.
+Tip: si no vamos a realizar ningun filtro el metodo populate puede recibir solo un string con el campo en vez de un objeto con el match...
+
+      const students = await studentsModel.find().populate('courses');
+
+Hagamos otro endpoint para los cursos y ver sus profesores:
+
+getCourses: async (req, res) => {
+        const {teacherName } = req.query;
+
+        await coursesModel.find({teachers:{$not:{$size:0}}})
+      .populate({path:'teachers',match:{firstName:teacherName}})
+        .exec((error,courses) => {
+            if(error){
+                console.log(error);
+                return res.send(error.message);
+            }
+            const teachersCourses = courses.filter(
+                (course) => course.teachers.lenght > 0
+            );
+
+            res.json(courses)
+        })
+                    Video 10 JWT AUTH	  
+					
+Aprenderemos la autenticación basada en Json Web Tokens, crearemos usuarios para hacer login en nuestra app y retornaremos el token de acceso a nuestra API.
+Esto es asi porque si no cualquier persona va a tener acceso a nuestra Base de Datos.
+
+La autorizacion basada en JsonWebTokens sugiere de que el cliente siempre esta obligado a mandarnos un token.Un token que debemos decodificar y asegurarnos de que es correcto.
+Ese token esta compuesto por informacion del usuario.
+
+Asi que tendremos que crear usuarios.Creamos el schema y exportamos el modelo.Despues crearemos nuestras rutas, controladores, las llevamos al index etc.Veamos la logica de ambos controladores.empecemos por el registro:
+
+               SIGNUP(registrarse)
+				   
+Lo primero es que la contraseña no podemos guardarla sin cifrar.Estamos en la obligacionde encriptarla, usaremos bcrypt para ello.
+Vamos a crear las funciones como helpers para encriptarlas.
+
+const bcrypt = require('bcrypt');
+const {saltRounds} = require('../config')
+
+const genSalt = async () => {
+    return await bcrypt.genSalt(+saltRounds)
+}
+
+const encryptPassword = async(password) => {
+    const salt = await genSalt()
+    return await bcrypt.hash(password,salt)
+}
+
+Las rondas para la sal las traeremos desde el .env. Falta exportar este archivo
+Cada vez que se encripte una contraseña, incluso siendo la misma, la salt será diferente y por ello el hash,asi que cada usuario tendrá un hash diferente.Ejemplo:
+
+    signUp: async (req, res) => {
+        const {username,password} = req.body;
+        const encryptedPassword = await encryptPassword(password);
+        console.log(encryptedPassword);
+        const newUser = await new usersModel({
+            username,password:encryptedPassword
+        }).save();
+
+        res.send(`${newUser.username} registered`);
+    },		   
+
+Por otro lado tenemos que crearnos el login donde vamos a recibir una password plana y deberemos comparar esa password, con la que esté en la base de datos, para saber si es correcta, es decir hay que desencriptarla(aunnque esto es interno, lo hace el método)
+
+               SIGNIN(logearse)
+			   
+Lo primero que tendremos que hacer es un find({username}) para ver si el usuario existe en la base de datos.Si no existe es ilógico que acceda:
+
+ try {
+	const { username, password } = req.body;
+	//debemos buscar si el username existe antes de nada
+	const userFound = await usersModel.findOne({
+		username
+	});
+	if(!userFound) return res.send("User not registered");
+ 
+Llegados a este punto,debemos comparar las passwords, asi que vamos a crear el metodo en los helpers de antes.
+el metodo comprueba una password del primer argumento con la password de la base de datos encriptada en el segundo parametro:
+
+const comparePassword = async (passwordFromClient,encryptedPassword)=> {
+    return await bcrypt.compare(passwordFromClient,encryptedPassword);
+}
+
+Una vez echo el método tenemos ambas passwords, la que viene por el body y la del objeto retornado por el findOne(se la puede hacer destructuring y cambiarla de nombre, pues se llaman igual)
+
+ //Si llegamos aqui hay que comparar las passwords
+		const {password:passwordFromDB} = userFound;
+		//console.log(userFound);  
+
+		const isValidPassword = await comparePassword(password,passwordFromDB);
+		//console.log(isValidPassword)
+
+		if(!isValidPassword) return res.send("The password is Invalid"); 
+
+Si llegamos aqui es que el usuario y la password son correctas, con lo que debemos crear el token y enviarlo.Deberemos instalarlo npm i jsonwebtoken
+
+         CREAR Y COMPROBAR EL TOKEN
+		 
+De nuevo, deberemos tanto crear como comparar el token.Para crearlo se usa el metodo sign(payload,secretKey,[options,callback]) para verificarlo se usa el metodo verify(token,secretKey,[options,callback])
+Si bien antes se uso un parametro aleatorio que era la sal, ahora se va a usar una SecretKey que deberá ser la misma
+
+Esta variable debe estar en el backend, en las variables de entorno.asi que la creamos, la requerimos en el config y la importamos junto con el modulo:
+
+const jwt = require('jsonwebtoken');
+const{jwtSecret} = require('../../config');		 
+				
+const token = jwt.sign({userFound},jwtSecret,{
+			expiresIn:86400
+		})	
+		
+Como payload se puede usar un objeto o el id, es indiferente.El método JSON.stringify() convierte un objeto o valor de JavaScript en una cadena de texto JSON
+
+const token = jwt.sign(JSON.stringify(userFound),jwtSecret,{
+			expiresIn:86400
+		});
+//Otra forma con un payload como objeto
+// const token = jwt.sign({userFound},jwtSecret,{
+//     expiresIn:86400
+// });        
+
+res.json({
+	auth:true,
+	token:token
+            })
+
+Le mandamos el token,etc. Tip: se puede visitar jwt.io para ver que contiene un token.
+
+Ya hemos mandado el token.Ahora,deberá ser el usuario el que mande el token desde el front y nosostros comprobarlo.Hay que proteger las rutas:
+
+      PROTEGER LAS RUTAS MEDIANTE TOKEN		m45	
+
+Proteger significa que no va a llegar a nuestro controlador si no pasa el middleware.ASi que creamos un middleware para validar el token con esa funcion .verify(token,secret, options)
+
+el token para verificar obviamente lo recibimos del res.headers["authorization"] <- IMPORTANTE	  
+Es lo más comun enviarlo por los encabezados de la peticion
+
+const token = req.headers["authorization"];
+
+Verificamos ese token con la palabra secreta y deberiamos recibir el usuario:
+
+const decodedToken = jwt.verify(token,jwtSecret)
+console.log(decodedToken);
+req.userData = decodedToken;
+
+Veremos que en UserData tenemos todos los datos del usuario, asi que podriamos hacer casi cualquier consulta.La ultima linea es fundamental, ya que estamos dando acceso a ese usuario a toda la aplicacion a traves del objeto global request.
+
+req.userData = decodedToken; <-FUNDAMENTAL
+
+¿Y que podemos hacer con esto? Podemos saber quien actualiza un documento, por ejemplo, añadiendo un campo al modelo y despues al actualizar(o borrar).el campo es de tipo ID:
+
+//Esto en el modelo de estudiantes, referenciando a Users:
+
+ updatedBy:{
+        type:Schema.Types.ObjectId,
+        ref:'users'
+    }
+
+En el update o Delete podemos mandar esos datos.
+
+updateOne: async (req, res) => {
+
+	const { id } = req.params;
+	const { firstName, lastName, age } = req.body;
+
+	const updatedStudent = await studentsModel.findByIdAndUpdate(id, {
+		$set: { firstName, lastName, age, updatedBy:req.userData._id }
+	}, { new: true })
+
+A su vez creo que podria crear un middleware que acceda al campo Admin o User y protega adicionalmente por Rol.
+Toda la logica se puede hacer en el login.
+
+Tip: para proteger todas las rutas se puede hacer un middleware general en vez de ir ruta por ruta:
+
+const validateToken = require('./src/middlewares/validateAuth'); <-f12 aqui!
+
+app.use(express.json());
+
+app.use('/courses', validateToken , courseRoutes);
+app.use('/students', validateToken , studentRoutes);
+app.use('/teachers', validateToken , teacherRoutes);
+app.use('/users', validateToken , userRoutes);
+
+Tip Genial: si pulso f12 en una ruta si es valida me llevara a ella
+
+	  
